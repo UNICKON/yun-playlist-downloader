@@ -19,6 +19,8 @@
 - [x] 再次下载默认跳过已下载部分, 使用 `content-length` 匹配
 - [x] 自定义文件名
 - [x] 下载进度显示
+- [x] 可选下载歌词 (`.lrc`)
+- [x] 可选转码 MP3 / AAC（需本机 ffmpeg，转完删除原文件）
 
 ## 注意
 
@@ -60,9 +62,25 @@ Usage: yun <url> [options]
   yun -c 10 <url>                          10首同时下载
   yun -f ":singer - :songName.:ext" <url>  下载格式为 "歌手 - 歌名"
   yun --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'  下载云盘
+  yun --lyric --mp3 --cookie yun.cookie.txt <url>   转 MP3 + 同名歌词（车载）
+  yun --lyric --aac <url>                           转 AAC(.m4a) + 同名歌词
 
 帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader
 ```
+
+### `--lyric` 下载歌词
+
+- 默认关闭
+- 开启后在最终音频旁写入同名 `.lrc`（UTF-8）
+- 无歌词时跳过该首，不影响下载
+
+### `--mp3` / `--aac` / `--transcode` 转码
+
+- 默认关闭；三者互斥，只能选一种
+- `--mp3` = `--transcode mp3`；`--aac` = `--transcode aac`（输出 `.m4a`）
+- 需要本机安装 [ffmpeg](https://ffmpeg.org/) 并加入 PATH
+- 转码成功后**删除原文件**，只保留转码结果
+- `--bitrate` 可选，单位 kbps（mp3 默认 320，aac 默认 256）
 
 ### `--retry-timeout` 重试超时
 

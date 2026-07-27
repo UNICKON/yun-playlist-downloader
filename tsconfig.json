@@ -12,5 +12,7 @@
     "types": ["node", "vitest/globals"],
     "jsx": "react-jsx",
     "noEmit": true
-  }
+  },
+  "include": ["src", "test"],
+  "exclude": ["scripts", "dist", "node_modules"]
 }

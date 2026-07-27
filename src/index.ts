@@ -7,6 +7,7 @@ import { CloudAdapter } from './adapter/cloud'
 import { DjradioAdapter, type ProgramSong } from './adapter/djradio'
 import { PlaylistAdapter } from './adapter/playlist'
 import { downloadSongWithInk } from './download/progress/ink'
+import { postProcessDownloadedFile, type PostDownloadOptions } from './post-download'
 import type { Song } from '$define'
 
 /**
@@ -49,7 +50,7 @@ export const adapterList = [
  * 下载一首歌曲
  */
 
-export interface DownloadSongOptions {
+export interface DownloadSongOptions extends PostDownloadOptions {
   url: string
   file: string
   song: Song
@@ -70,7 +71,8 @@ export function downloadSong(options: DownloadSongOptions & { progress?: boolean
 }
 
 export async function downloadSongPlain(options: DownloadSongOptions) {
-  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial } = options
+  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial, lyric, transcode, bitrate } =
+    options
 
   if (song.isFreeTrial && skipTrial) {
     console.log(`${logSymbols.warning} ${song.index}/${totalLength} 跳过试听 ${file}`)
@@ -98,6 +100,16 @@ export async function downloadSongPlain(options: DownloadSongOptions) {
   }
 
   console.log(`${logSymbols.success} ${song.index}/${totalLength} ${skip ? '下载跳过' : '下载成功'} ${file}`)
+
+  try {
+    const finalFile = await postProcessDownloadedFile(file, song, { lyric, transcode, bitrate })
+    if (finalFile !== file) {
+      console.log(`${logSymbols.info} ${song.index}/${totalLength} 最终文件 ${finalFile}`)
+    }
+  } catch (e: any) {
+    console.log(`${logSymbols.error} ${song.index}/${totalLength} 后处理失败 ${file}`)
+    console.error(e?.stack || e)
+  }
 }
 
 /**

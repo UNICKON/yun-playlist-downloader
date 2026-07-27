@@ -225,3 +225,17 @@ export async function songDownloadUrl(id: Id, quality?: string | number) {
   const data = (res.body as { data?: SongPlayUrlInfo }).data
   return data
 }
+
+/**
+ * 歌词
+ */
+export async function songLyric(id: Id) {
+  const res = await Api.lyric({ ...getApiBaseConfig(), id })
+  const body = res.body as {
+    lrc?: { lyric?: string }
+    tlyric?: { lyric?: string }
+    code?: number
+  }
+  const text = body.lrc?.lyric?.trim()
+  return text || undefined
+}

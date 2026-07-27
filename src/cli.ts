@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { COOKIE_CONTENT, DEFAULT_COOKIE_FILE, readCookie } from '$auth/cookie'
 import { baseDebug } from '$common'
 import { downloadSong, getAdapter, getFileName } from './index'
+import { assertFfmpegAvailable, defaultBitrate, type TranscodeFormat } from './transcode'
 import type { PackageJson } from 'type-fest'
 import type { SongValid } from '$define'
 
@@ -49,6 +50,8 @@ const config = rcFactory('yun', {
   'retry-times': 3, // 3 times
   'skip': true,
   'progress': true,
+  'lyric': false,
+  'bitrate': undefined as number | undefined,
 })
 
 yargs(hideBin(process.argv))
@@ -135,11 +138,42 @@ yargs(hideBin(process.argv))
             type: 'boolean',
             default: false,
           },
+
+          lyric: {
+            desc: '下载歌词为同名 .lrc',
+            type: 'boolean',
+            default: false,
+          },
+
+          transcode: {
+            desc: '转码格式: mp3 | aac（成功后删除原文件）',
+            type: 'string',
+            choices: ['mp3', 'aac'] as const,
+          },
+
+          mp3: {
+            desc: '等价 --transcode mp3',
+            type: 'boolean',
+            default: false,
+          },
+
+          aac: {
+            desc: '等价 --transcode aac（输出 .m4a）',
+            type: 'boolean',
+            default: false,
+          },
+
+          bitrate: {
+            desc: '转码码率 kbps（mp3 默认 320，aac 默认 256）',
+            type: 'number',
+          },
         })
         .config(config)
         .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
         .example('$0 7392714527', '使用 id 下载歌单')
         .example(`$0 --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'`, '下载云盘')
+        .example(`$0 --lyric --mp3 --cookie yun.cookie.txt <url>`, '下载并转 MP3 + 歌词（车载）')
+        .example(`$0 --lyric --aac <url>`, '下载并转 AAC(.m4a) + 歌词')
         .example('$0 -c 10 <url>', '10首同时下载')
         .example('$0 -f ":singer - :songName.:ext" <url>', '下载文件名为 "歌手 - 歌名"')
         .epilog('帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader')
@@ -164,6 +198,28 @@ type ExpectedArgv = {
   cover: boolean
   cookie: string
   skipTrial: boolean
+  lyric: boolean
+  transcode?: string
+  mp3: boolean
+  aac: boolean
+  bitrate?: number
+}
+
+function resolveTranscode(options: ExpectedArgv): TranscodeFormat | undefined {
+  const flags = [options.mp3 && 'mp3', options.aac && 'aac', options.transcode].filter(Boolean) as string[]
+  const uniq = [...new Set(flags)]
+  if (uniq.length > 1) {
+    console.error(`${logSymbols.error} --mp3 / --aac / --transcode 只能选一种`)
+    process.exit(1)
+  }
+  if (options.mp3) return 'mp3'
+  if (options.aac) return 'aac'
+  if (options.transcode === 'mp3' || options.transcode === 'aac') return options.transcode
+  if (options.transcode) {
+    console.error(`${logSymbols.error} --transcode 仅支持 mp3 或 aac`)
+    process.exit(1)
+  }
+  return undefined
 }
 
 async function defaultCommandAction(options: ExpectedArgv) {
@@ -178,7 +234,12 @@ async function defaultCommandAction(options: ExpectedArgv) {
     cover,
     cookie,
     skipTrial,
+    lyric,
+    bitrate,
   } = options
+
+  const transcode = resolveTranscode(options)
+  if (bitrate == null && transcode) bitrate = defaultBitrate(transcode)
 
   const urlResult = z
     .union([z.url(), z.string().trim().regex(/^\d+$/)], 'url 参数错误: 支持 url 或 歌单ID')
@@ -207,6 +268,9 @@ async function defaultCommandAction(options: ExpectedArgv) {
     ['cover', cover, '下载封面'],
     ['cookie', cookie, 'cookie文件'],
     ['skip-trial', skipTrial, '跳过试听歌曲'],
+    ['lyric', lyric, '下载同名 .lrc'],
+    ['transcode', transcode || false, '转码并删除原文件'],
+    ['bitrate', bitrate ?? '-', '转码码率(kbps)'],
   )
   console.log(`${table.toString()}\n`)
 
@@ -217,6 +281,15 @@ async function defaultCommandAction(options: ExpectedArgv) {
 
   if (/cloud/i.test(url) && !COOKIE_CONTENT) {
     console.log(`${logSymbols.warning} 云盘下载需要登录 Cookie，见 docs/cookie.md`)
+  }
+
+  if (transcode) {
+    try {
+      await assertFfmpegAvailable()
+    } catch (e: any) {
+      console.error(`${logSymbols.error} ${e.message || e}`)
+      process.exit(1)
+    }
   }
 
   const start = Date.now()
@@ -281,6 +354,9 @@ async function defaultCommandAction(options: ExpectedArgv) {
         progress,
         skipExists,
         skipTrial,
+        lyric,
+        transcode,
+        bitrate,
       })
     },
     concurrency,

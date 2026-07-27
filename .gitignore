@@ -3,6 +3,9 @@ node_modules
 example
 yun.cookie.txt
 cloud-download-smoke
+lyric-transcode-smoke
+transcode-only-smoke
+transcode-mp3-smoke
 .superpowers
 
 # test cover

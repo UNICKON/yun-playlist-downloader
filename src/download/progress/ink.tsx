@@ -5,12 +5,14 @@ import Spinner from 'ink-spinner'
 import logSymbols from 'log-symbols'
 import { useEffect, useMemo, useState } from 'react'
 import { proxy, useSnapshot } from 'valtio'
+import { postProcessDownloadedFile } from '../../post-download'
 import type { DownloadSongOptions } from '$index'
 
 type CompletedItem = DownloadSongOptions & {
   index: number
   success: boolean
   skip?: boolean
+  finalFile?: string
 }
 type RunningItem = DownloadSongOptions & {
   index: number
@@ -25,7 +27,19 @@ const store = proxy<{ completed: CompletedItem[]; running: RunningItem[] }>({
 })
 
 export async function downloadSongWithInk(options: DownloadSongOptions) {
-  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial } = options
+  const {
+    url,
+    file,
+    song,
+    totalLength,
+    retryTimeout,
+    retryTimes,
+    skipExists,
+    skipTrial,
+    lyric,
+    transcode,
+    bitrate,
+  } = options
 
   renderApp()
   const index = song.rawIndex
@@ -38,7 +52,7 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
   }
 
   // 类似 Promise, 状态转换只能发生一次
-  const moveToComplete = once((payload: Pick<CompletedItem, 'success' | 'skip'>) => {
+  const moveToComplete = once((payload: Pick<CompletedItem, 'success' | 'skip' | 'finalFile'>) => {
     // running
     const idx = store.running.findIndex((x) => x.index === index)
     if (idx !== -1) store.running.splice(idx, 1)
@@ -47,8 +61,8 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
   })
 
   // 成功, 可能会调用多次, 不知为何
-  const success = once(() => {
-    moveToComplete({ success: true, skip })
+  const success = once((finalFile?: string) => {
+    moveToComplete({ success: true, skip, finalFile })
   })
 
   // 失败
@@ -82,7 +96,7 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
       skipExists,
       onprogress({ percent }) {
         if (percent === 1) {
-          success()
+          // 等后处理完成后再标记成功
         } else {
           downloading(percent)
         }
@@ -100,7 +114,12 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
     return
   }
 
-  success()
+  try {
+    const finalFile = await postProcessDownloadedFile(file, song, { lyric, transcode, bitrate })
+    success(finalFile)
+  } catch {
+    fail()
+  }
 }
 
 let inkInstance: Instance | undefined
@@ -168,7 +187,7 @@ function CompletedItemDisplay({ item }: { item: CompletedItem }) {
 
   return (
     <Text key={item.url}>
-      {symbol} {item.song.index}/{item.totalLength} {statusText} {item.file}
+      {symbol} {item.song.index}/{item.totalLength} {statusText} {item.finalFile || item.file}
     </Text>
   )
 }
