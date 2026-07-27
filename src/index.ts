@@ -71,7 +71,7 @@ export function downloadSong(options: DownloadSongOptions & { progress?: boolean
 }
 
 export async function downloadSongPlain(options: DownloadSongOptions) {
-  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial, lyric, transcode, bitrate } =
+  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial, lyric, transcode, bitrate, playlistCoverFile } =
     options
 
   if (song.isFreeTrial && skipTrial) {
@@ -102,7 +102,7 @@ export async function downloadSongPlain(options: DownloadSongOptions) {
   console.log(`${logSymbols.success} ${song.index}/${totalLength} ${skip ? '下载跳过' : '下载成功'} ${file}`)
 
   try {
-    const finalFile = await postProcessDownloadedFile(file, song, { lyric, transcode, bitrate })
+    const finalFile = await postProcessDownloadedFile(file, song, { lyric, transcode, bitrate, playlistCoverFile })
     if (finalFile !== file) {
       console.log(`${logSymbols.info} ${song.index}/${totalLength} 最终文件 ${finalFile}`)
     }

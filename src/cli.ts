@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'node:module'
+import { unlink } from 'node:fs/promises'
 import path from 'node:path'
 import CliTable from 'cli-table3'
 import { dl } from 'dl-vampire'
@@ -122,7 +123,7 @@ yargs(hideBin(process.argv))
           },
 
           cover: {
-            desc: '下载封面',
+            desc: '嵌入封面到音频标签（优先单曲专辑图；临时文件嵌入后删除）',
             type: 'boolean',
             default: false,
           },
@@ -172,7 +173,7 @@ yargs(hideBin(process.argv))
         .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
         .example('$0 7392714527', '使用 id 下载歌单')
         .example(`$0 --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'`, '下载云盘')
-        .example(`$0 --lyric --mp3 --cookie yun.cookie.txt <url>`, '下载并转 MP3 + 歌词（车载）')
+        .example(`$0 --lyric --mp3 --cover --cookie yun.cookie.txt <url>`, '车载：MP3 + 歌词 + 封面标签')
         .example(`$0 --lyric --aac <url>`, '下载并转 AAC(.m4a) + 歌词')
         .example('$0 -c 10 <url>', '10首同时下载')
         .example('$0 -f ":singer - :songName.:ext" <url>', '下载文件名为 "歌手 - 歌名"')
@@ -265,7 +266,7 @@ async function defaultCommandAction(options: ExpectedArgv) {
     ['retry-times', retryTimes, '下载重试(次)'],
     ['skip', skipExists, '跳过已下载正常文件'],
     ['progress', progress, '显示进度条'],
-    ['cover', cover, '下载封面'],
+    ['cover', cover, '嵌入封面(优先单曲专辑图)'],
     ['cookie', cookie, 'cookie文件'],
     ['skip-trial', skipTrial, '跳过试听歌曲'],
     ['lyric', lyric, '下载同名 .lrc'],
@@ -283,7 +284,7 @@ async function defaultCommandAction(options: ExpectedArgv) {
     console.log(`${logSymbols.warning} 云盘下载需要登录 Cookie，见 docs/cookie.md`)
   }
 
-  if (transcode) {
+  if (transcode || lyric || cover) {
     try {
       await assertFfmpegAvailable()
     } catch (e: any) {
@@ -300,15 +301,16 @@ async function defaultCommandAction(options: ExpectedArgv) {
   console.log(`${logSymbols.info} 正在下载「${name}」,请稍候...`)
 
   // 封面
+  let playlistCoverFile: string | undefined
   if (cover) {
     const coverUrl = await adapter.getCover()
     if (!coverUrl) {
       console.log(`${logSymbols.warning} [cover]: 没有找到封面`)
     } else {
       const coverExt = path.extname(coverUrl) || '.jpg'
-      const coverFile = `${filenamify(name)}/cover${coverExt}`
-      await dl({ url: coverUrl, file: coverFile })
-      console.log(`${logSymbols.success} [cover]: 封面已下载 ${coverFile}`)
+      playlistCoverFile = `${filenamify(name)}/cover${coverExt}`
+      await dl({ url: coverUrl, file: playlistCoverFile })
+      console.log(`${logSymbols.success} [cover]: 封面已下载 ${playlistCoverFile}`)
     }
   }
 
@@ -357,10 +359,21 @@ async function defaultCommandAction(options: ExpectedArgv) {
         lyric,
         transcode,
         bitrate,
+        playlistCoverFile,
       })
     },
     concurrency,
   )
+
+  // 封面已嵌入音频标签，删除临时下载的歌单/专辑封面文件
+  if (playlistCoverFile) {
+    try {
+      await unlink(playlistCoverFile)
+      console.log(`${logSymbols.success} [cover]: 已删除临时封面 ${playlistCoverFile}`)
+    } catch {
+      /* ignore */
+    }
+  }
 
   await delay(100) // time for ink render (moveToComplete)
   const dur = humanizeDuration(Date.now() - start, { language: 'zh_CN' })

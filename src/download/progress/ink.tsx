@@ -115,7 +115,12 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
   }
 
   try {
-    const finalFile = await postProcessDownloadedFile(file, song, { lyric, transcode, bitrate })
+    const finalFile = await postProcessDownloadedFile(file, song, {
+      lyric,
+      transcode,
+      bitrate,
+      playlistCoverFile: options.playlistCoverFile,
+    })
     success(finalFile)
   } catch {
     fail()
