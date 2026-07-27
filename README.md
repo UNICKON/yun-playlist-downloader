@@ -13,7 +13,7 @@
 
 ## 特性
 
-- [x] 支持歌单 / 专辑 / 电台
+- [x] 支持歌单 / 专辑 / 电台 / 云盘
 - [x] 音质选择
 - [x] 下载超时 / 重试
 - [x] 再次下载默认跳过已下载部分, 使用 `content-length` 匹配
@@ -59,6 +59,7 @@ Usage: yun <url> [options]
 示例：
   yun -c 10 <url>                          10首同时下载
   yun -f ":singer - :songName.:ext" <url>  下载格式为 "歌手 - 歌名"
+  yun --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'  下载云盘
 
 帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader
 ```

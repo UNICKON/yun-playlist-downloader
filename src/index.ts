@@ -3,6 +3,7 @@ import { dl } from 'dl-vampire'
 import filenamify from 'filenamify'
 import logSymbols from 'log-symbols'
 import { AlbumAdapter } from './adapter/album'
+import { CloudAdapter } from './adapter/cloud'
 import { DjradioAdapter, type ProgramSong } from './adapter/djradio'
 import { PlaylistAdapter } from './adapter/playlist'
 import { downloadSongWithInk } from './download/progress/ink'
@@ -12,13 +13,13 @@ import type { Song } from '$define'
  * page type
  */
 
-const allowedPageTypes = ['playlist', 'album', 'djradio'] as const
+const allowedPageTypes = ['playlist', 'album', 'djradio', 'cloud'] as const
 type PageType = (typeof allowedPageTypes)[number]
 
 interface AdapterItem {
   type: PageType
   typeText: string
-  adapter: typeof PlaylistAdapter | typeof AlbumAdapter | typeof DjradioAdapter
+  adapter: typeof PlaylistAdapter | typeof AlbumAdapter | typeof DjradioAdapter | typeof CloudAdapter
 }
 
 export const adapterList = [
@@ -36,6 +37,11 @@ export const adapterList = [
     type: 'djradio',
     typeText: '电台',
     adapter: DjradioAdapter,
+  },
+  {
+    type: 'cloud',
+    typeText: '云盘',
+    adapter: CloudAdapter,
   },
 ] as const
 

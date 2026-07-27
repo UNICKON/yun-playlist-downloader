@@ -15,7 +15,7 @@ import updateNotifier from 'update-notifier'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { z } from 'zod'
-import { DEFAULT_COOKIE_FILE, readCookie } from '$auth/cookie'
+import { COOKIE_CONTENT, DEFAULT_COOKIE_FILE, readCookie } from '$auth/cookie'
 import { baseDebug } from '$common'
 import { downloadSong, getAdapter, getFileName } from './index'
 import type { PackageJson } from 'type-fest'
@@ -139,6 +139,7 @@ yargs(hideBin(process.argv))
         .config(config)
         .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
         .example('$0 7392714527', '使用 id 下载歌单')
+        .example(`$0 --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'`, '下载云盘')
         .example('$0 -c 10 <url>', '10首同时下载')
         .example('$0 -f ":singer - :songName.:ext" <url>', '下载文件名为 "歌手 - 歌名"')
         .epilog('帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader')
@@ -213,6 +214,10 @@ async function defaultCommandAction(options: ExpectedArgv) {
   quality *= 1000
   retryTimeout = ms(`${retryTimeout}m`)
   readCookie(cookie)
+
+  if (/cloud/i.test(url) && !COOKIE_CONTENT) {
+    console.log(`${logSymbols.warning} 云盘下载需要登录 Cookie，见 docs/cookie.md`)
+  }
 
   const start = Date.now()
   const adapter = getAdapter(url)

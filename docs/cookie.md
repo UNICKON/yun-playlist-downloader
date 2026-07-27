@@ -1,6 +1,7 @@
 # Cookie 使用说明
 
-有些歌单, 比如「自己喜欢的歌单」需要登录查看, 使用 `--cookie` 默认读取 `yun.cookie.txt` 文件
+有些歌单, 比如「自己喜欢的歌单」需要登录查看, 使用 `--cookie` 默认读取 `yun.cookie.txt` 文件。
+下载「云盘」也必须提供已登录 Cookie。
 
 ## 安装 chrome 插件
 

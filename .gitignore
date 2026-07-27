@@ -1,6 +1,9 @@
 node_modules
 *.log
 example
+yun.cookie.txt
+cloud-download-smoke
+.superpowers
 
 # test cover
 .nyc_output

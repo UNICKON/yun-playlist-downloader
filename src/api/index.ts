@@ -165,3 +165,63 @@ export async function djradioPrograms(id: Id) {
 
   return allPrograms
 }
+
+/**
+ * 云盘
+ */
+
+export type CloudSongItem = {
+  songId: number
+  songName: string
+  artist: string
+  album: string
+  fileName?: string
+  fileSize?: number
+  bitrate?: number
+  simpleSong?: {
+    id: number
+    name: string
+    ar?: { name: string }[]
+    al?: { name: string }
+  }
+}
+
+const CLOUD_PAGE_SIZE = 50
+
+export async function userCloudPage(limit = CLOUD_PAGE_SIZE, offset = 0) {
+  const res = await Api.user_cloud({ ...getApiBaseConfig(), limit, offset })
+  const body = res.body as {
+    data?: CloudSongItem[]
+    hasMore?: boolean
+    count?: number
+  }
+  return {
+    data: body.data || [],
+    hasMore: Boolean(body.hasMore),
+    count: body.count ?? 0,
+  }
+}
+
+export async function userCloudAll() {
+  const all: CloudSongItem[] = []
+  let offset = 0
+  let hasMore = true
+  while (hasMore) {
+    const page = await userCloudPage(CLOUD_PAGE_SIZE, offset)
+    all.push(...page.data)
+    hasMore = page.hasMore
+    offset += CLOUD_PAGE_SIZE
+    if (!page.data.length) break
+  }
+  return all
+}
+
+export async function songDownloadUrl(id: Id, quality?: string | number) {
+  const res = await Api.song_download_url({
+    ...getApiBaseConfig(),
+    id,
+    br: quality,
+  })
+  const data = (res.body as { data?: SongPlayUrlInfo }).data
+  return data
+}

@@ -1,7 +1,6 @@
 import { extname } from 'node:path'
-import { invariant } from 'es-toolkit'
 import { get } from 'es-toolkit/compat'
-import { songUrl } from '$api'
+import { songDownloadUrl, songUrl } from '$api'
 import { getId } from '$util'
 import type { Song, SongPlayUrlInfo } from '$define'
 
@@ -10,9 +9,7 @@ export abstract class BaseAdapter {
   id: string
   constructor(url: string) {
     this.url = url
-    const id = getId(url)
-    invariant(id, 'id cannot be empty')
-    this.id = id!
+    this.id = getId(url) || ''
   }
 
   /**
@@ -46,16 +43,27 @@ export abstract class BaseAdapter {
         ext = extname(pathname)
         if (ext.startsWith('.')) ext = ext.slice(1)
       }
+      // 云盘 CDN 链接路径常无后缀，回退 type / 原始文件名
+      if (!ext || ext === '!' || ext.length > 5) {
+        const typeExt = songData.playUrlInfo?.type?.toLowerCase()
+        const fn = get(songData, 'pc.fn') as string | undefined
+        const fromFn = fn ? extname(fn).replace(/^\./, '') : ''
+        ext = typeExt || fromFn || ext
+      }
 
       return {
         // 歌手
-        singer: (get(songData, 'ar.0.name') as string) || (get(songData, 'artists.0.name') as string) || '',
+        singer:
+          (get(songData, 'ar.0.name') as string) ||
+          (get(songData, 'artists.0.name') as string) ||
+          (get(songData, 'pc.ar') as string) ||
+          '',
 
         // 歌曲名
-        songName: songData.name,
+        songName: songData.name || (get(songData, 'pc.sn') as string) || '',
 
         // 专辑名
-        albumName: (get(songData, 'al.name') as string) || '',
+        albumName: (get(songData, 'al.name') as string) || (get(songData, 'pc.alb') as string) || '',
 
         // url for download
         url,
@@ -97,14 +105,32 @@ export abstract class BaseAdapter {
       const songDataFull = songData as WithOptionalPlayUrlInfo
       songDataFull.playUrlInfo = info
       ret.all.push(songDataFull)
+    }
 
-      // 版权受限
-      if (!info?.url) {
-        ret.removed.push(songDataFull)
-      } else {
-        ret.songs.push(songDataFull)
+    // 二次 songUrl：部分云盘曲在大批量请求中可能丢链
+    const missingAfterFirst = ret.all.filter((s) => !s.playUrlInfo?.url)
+    if (missingAfterFirst.length) {
+      const retryInfos = await songUrl(
+        missingAfterFirst.map((s) => s.id),
+        quality,
+      )
+      for (const songDataFull of missingAfterFirst) {
+        const info = retryInfos.find((x) => String(x.id) === String(songDataFull.id))
+        if (info?.url) songDataFull.playUrlInfo = info
       }
     }
+
+    // 云盘曲 download url 兜底
+    for (const songDataFull of ret.all) {
+      if (songDataFull.playUrlInfo?.url) continue
+      const isCloud = Boolean(get(songDataFull, 'pc') || get(songDataFull, 'privilege.cs'))
+      if (!isCloud) continue
+      const dl = await songDownloadUrl(songDataFull.id, quality)
+      if (dl?.url) songDataFull.playUrlInfo = dl
+    }
+
+    ret.songs = ret.all.filter((s) => s.playUrlInfo?.url)
+    ret.removed = ret.all.filter((s) => !s.playUrlInfo?.url)
 
     return ret
   }
