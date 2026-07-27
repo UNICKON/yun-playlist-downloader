@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { createRequire } from 'node:module'
 import { unlink } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import CliTable from 'cli-table3'
 import { dl } from 'dl-vampire'
@@ -16,7 +16,10 @@ import updateNotifier from 'update-notifier'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { z } from 'zod'
-import { COOKIE_CONTENT, DEFAULT_COOKIE_FILE, readCookie } from '$auth/cookie'
+import { COOKIE_CONTENT, DEFAULT_COOKIE_FILE } from '$auth/cookie'
+import { ensureAuth, type CookieMode } from '$auth/ensure-auth'
+import { isInteractive } from '$auth/prompt'
+import { selectDownloadOptions, selectDownloadUrl } from '$auth/wizard'
 import { baseDebug } from '$common'
 import { downloadSong, getAdapter, getFileName } from './index'
 import { assertFfmpegAvailable, defaultBitrate, type TranscodeFormat } from './transcode'
@@ -58,16 +61,15 @@ const config = rcFactory('yun', {
 yargs(hideBin(process.argv))
   .scriptName('yun')
   .command(
-    '$0 <url>',
+    '$0 [url]',
     '网易云音乐 歌单/专辑 下载器',
     // builder
     (yargs) => {
       return yargs
-        .usage('Usage: $0 <url> [options]')
+        .usage('Usage: $0 [url] [options]')
         .positional('url', {
-          describe: '歌单/专辑/电台的链接 or 歌单 ID',
+          describe: '歌单/专辑/电台的链接 or 歌单 ID（可省略，交互选择）',
           type: 'string',
-          demandOption: true, // 直接运行 yun 飘红
         })
         .alias({
           h: 'help',
@@ -134,6 +136,13 @@ yargs(hideBin(process.argv))
             default: DEFAULT_COOKIE_FILE,
           },
 
+          cookieMode: {
+            desc: '登录方式: ask(交互) | file(只读文件) | qr(扫码)',
+            type: 'string',
+            choices: ['ask', 'file', 'qr'] as const,
+            default: 'ask',
+          },
+
           skipTrial: {
             desc: '跳过试听歌曲',
             type: 'boolean',
@@ -170,17 +179,19 @@ yargs(hideBin(process.argv))
           },
         })
         .config(config)
+        .example(`$0`, '交互：登录方式 + 选择歌单/云盘 + 下载选项')
         .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
         .example('$0 7392714527', '使用 id 下载歌单')
-        .example(`$0 --cookie yun.cookie.txt 'https://music.163.com/#/my/m/music/cloud'`, '下载云盘')
-        .example(`$0 --lyric --mp3 --cover --cookie yun.cookie.txt <url>`, '车载：MP3 + 歌词 + 封面标签')
+        .example(`$0 --cookie-mode qr`, '强制扫码登录后交互选歌单')
+        .example(`$0 --cookie-mode file --lyric --mp3 --cover <url>`, '非交互：读 cookie 并下载')
         .example(`$0 --lyric --aac <url>`, '下载并转 AAC(.m4a) + 歌词')
         .example('$0 -c 10 <url>', '10首同时下载')
         .example('$0 -f ":singer - :songName.:ext" <url>', '下载文件名为 "歌手 - 歌名"')
         .epilog('帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader')
     },
     (options) => {
-      return defaultCommandAction(options)
+      const cookieMode = (['ask', 'file', 'qr'].includes(options.cookieMode) ? options.cookieMode : 'ask') as CookieMode
+      return defaultCommandAction({ ...options, cookieMode })
     },
   )
   .version(version!)
@@ -188,7 +199,7 @@ yargs(hideBin(process.argv))
   .parse()
 
 type ExpectedArgv = {
-  url: string
+  url?: string
   concurrency: number
   format: string
   quality: number
@@ -198,6 +209,7 @@ type ExpectedArgv = {
   progress: boolean
   cover: boolean
   cookie: string
+  cookieMode: CookieMode
   skipTrial: boolean
   lyric: boolean
   transcode?: string
@@ -234,31 +246,63 @@ async function defaultCommandAction(options: ExpectedArgv) {
     progress,
     cover,
     cookie,
+    cookieMode,
     skipTrial,
     lyric,
     bitrate,
   } = options
 
-  const transcode = resolveTranscode(options)
+  let transcode = resolveTranscode(options)
   if (bitrate == null && transcode) bitrate = defaultBitrate(transcode)
+
+  // 登录：交互选读文件 / 扫码
+  await ensureAuth(cookie, cookieMode)
+
+  // 下载目标：无 url 时交互选歌单 / 云盘 / 手动输入
+  let url: string
+  try {
+    url = await selectDownloadUrl(options.url)
+  } catch (e: any) {
+    console.error(`${logSymbols.error} ${e?.message || e}`)
+    process.exit(1)
+  }
 
   const urlResult = z
     .union([z.url(), z.string().trim().regex(/^\d+$/)], 'url 参数错误: 支持 url 或 歌单ID')
-    .safeParse(options.url)
+    .safeParse(url)
   if (!urlResult.success) {
     console.error(z.prettifyError(urlResult.error))
     process.exit(1)
   }
-  let url = urlResult.data
-  // only id as url provided
-  if (url && /^\d+$/.test(url)) {
+  url = urlResult.data
+  if (/^\d+$/.test(url)) {
     url = `https://music.163.com/#/playlist?id=${url}`
+  }
+
+  // 下载选项：交互终端下再确认一次
+  if (isInteractive()) {
+    const picked = await selectDownloadOptions({
+      lyric,
+      cover,
+      skipTrial,
+      quality,
+      transcode,
+      bitrate,
+    })
+    lyric = picked.lyric
+    cover = picked.cover
+    skipTrial = picked.skipTrial
+    quality = picked.quality
+    transcode = picked.transcode
+    bitrate = picked.bitrate
+    if (bitrate == null && transcode) bitrate = defaultBitrate(transcode)
   }
 
   const table = new CliTable({
     head: [`${logSymbols.info} 当前参数`, '值', '备注'],
   })
   table.push(
+    ['url', url, '下载目标'],
     ['concurrency', concurrency, '同时下载数量'],
     ['format', format, '文件名模版'],
     ['quality', quality, '音质(kbps)'],
@@ -268,6 +312,7 @@ async function defaultCommandAction(options: ExpectedArgv) {
     ['progress', progress, '显示进度条'],
     ['cover', cover, '嵌入封面(优先单曲专辑图)'],
     ['cookie', cookie, 'cookie文件'],
+    ['cookie-mode', cookieMode, '登录方式'],
     ['skip-trial', skipTrial, '跳过试听歌曲'],
     ['lyric', lyric, '下载同名 .lrc'],
     ['transcode', transcode || false, '转码并删除原文件'],
@@ -278,7 +323,6 @@ async function defaultCommandAction(options: ExpectedArgv) {
   // process argv
   quality *= 1000
   retryTimeout = ms(`${retryTimeout}m`)
-  readCookie(cookie)
 
   if (/cloud/i.test(url) && !COOKIE_CONTENT) {
     console.log(`${logSymbols.warning} 云盘下载需要登录 Cookie，见 docs/cookie.md`)
@@ -325,9 +369,6 @@ async function defaultCommandAction(options: ExpectedArgv) {
       console.log(`  ${i.singer} - ${i.songName}`)
     }
   }
-
-  // FIXME
-  // process.exit()
 
   // 开始下载
   const freeTrialCount = keeped.filter((x) => x.isFreeTrial).length

@@ -2,6 +2,7 @@ node_modules
 *.log
 example
 yun.cookie.txt
+.ffmpeg-path
 cloud-download-smoke
 lyric-transcode-smoke
 tag-smoke
