@@ -23,6 +23,8 @@ export function getSongCoverUrl(song: Song): string | undefined {
   if (!raw) return undefined
   // 优先用单曲所属专辑封面，避免误用歌单封面
   const candidates = [
+    get(raw, 'coverUrl'),
+    get(raw, 'picUrl'),
     get(raw, 'al.picUrl'),
     get(raw, 'album.picUrl'),
     get(raw, 'simpleSong.al.picUrl'),

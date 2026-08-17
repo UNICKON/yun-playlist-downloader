@@ -5,6 +5,7 @@ import Spinner from 'ink-spinner'
 import logSymbols from 'log-symbols'
 import { useEffect, useMemo, useState } from 'react'
 import { proxy, useSnapshot } from 'valtio'
+import { buildDownloadRequestOptions } from '../../download-headers'
 import { postProcessDownloadedFile } from '../../post-download'
 import type { DownloadSongOptions } from '$index'
 
@@ -27,19 +28,8 @@ const store = proxy<{ completed: CompletedItem[]; running: RunningItem[] }>({
 })
 
 export async function downloadSongWithInk(options: DownloadSongOptions) {
-  const {
-    url,
-    file,
-    song,
-    totalLength,
-    retryTimeout,
-    retryTimes,
-    skipExists,
-    skipTrial,
-    lyric,
-    transcode,
-    bitrate,
-  } = options
+  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial, lyric, transcode, bitrate } =
+    options
 
   renderApp()
   const index = song.rawIndex
@@ -94,6 +84,7 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
       url,
       file,
       skipExists,
+      requestOptions: buildDownloadRequestOptions(url, song),
       onprogress({ percent }) {
         if (percent === 1) {
           // 等后处理完成后再标记成功

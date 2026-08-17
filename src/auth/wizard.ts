@@ -29,10 +29,16 @@ export async function selectDownloadUrl(providedUrl?: string, auth?: DownloadAut
 
   while (true) {
     const source = await promptSelect('下载来源', [
+      { label: '多源搜索（QQ/网易云/酷我/酷狗/汽水）', value: 'search' as const },
       { label: '我的歌单（登录后选择）', value: 'playlist' as const },
       { label: '我的云盘', value: 'cloud' as const },
       { label: '手动输入链接 / 歌单 ID', value: 'url' as const },
     ])
+
+    if (source === 'search') {
+      // 特殊标记：cli 捕获后走 multi-source 流程
+      return '__MULTI_SOURCE_SEARCH__'
+    }
 
     if (source === 'cloud') {
       return CLOUD_URL

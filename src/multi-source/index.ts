@@ -1,0 +1,5 @@
+export { runSearchCommand } from './cli-search'
+export { downloadResolvedHits } from './download-selected'
+export { listProviders, parseSourceList } from './providers'
+export { resolveHit, searchAllSources } from './search-all'
+export type { MusicSourceId, ResolvedTrack, SearchHit, SourceProvider } from './types'

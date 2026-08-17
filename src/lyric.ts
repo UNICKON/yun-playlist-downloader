@@ -17,9 +17,16 @@ export function lyricPathForAudio(audioFile: string) {
 }
 
 export async function fetchSongLyric(song: Song): Promise<string | undefined> {
+  const raw = song.raw as { lyricText?: string; multiSource?: boolean } | undefined
+  if (typeof raw?.lyricText === 'string' && raw.lyricText.trim()) {
+    return raw.lyricText
+  }
+
   const id = getSongId(song)
   if (id == null) {
-    console.log(`${logSymbols.warning} [lyric] 无歌曲 id，跳过 ${song.singer} - ${song.songName}`)
+    if (!raw?.multiSource) {
+      console.log(`${logSymbols.warning} [lyric] 无歌曲 id，跳过 ${song.singer} - ${song.songName}`)
+    }
     return undefined
   }
 

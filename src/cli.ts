@@ -22,6 +22,7 @@ import { isInteractive } from '$auth/prompt'
 import { selectDownloadOptions, selectDownloadUrl } from '$auth/wizard'
 import { baseDebug } from '$common'
 import { downloadSong, getAdapter, getFileName } from './index'
+import { runSearchCommand } from './multi-source'
 import { assertFfmpegAvailable, defaultBitrate, type TranscodeFormat } from './transcode'
 import type { PackageJson } from 'type-fest'
 import type { SongValid } from '$define'
@@ -58,146 +59,6 @@ const config = rcFactory('yun', {
   'bitrate': undefined as number | undefined,
 })
 
-yargs(hideBin(process.argv))
-  .scriptName('yun')
-  .command(
-    '$0 [url]',
-    '网易云音乐 歌单/专辑 下载器',
-    // builder
-    (yargs) => {
-      return yargs
-        .usage('Usage: $0 [url] [options]')
-        .positional('url', {
-          describe: '歌单/专辑/电台的链接 or 歌单 ID（可省略，交互选择）',
-          type: 'string',
-        })
-        .alias({
-          h: 'help',
-          v: 'version',
-          c: 'concurrency',
-          f: 'format',
-          q: 'quality',
-          s: 'skip',
-          p: 'progress',
-        })
-        .options({
-          concurrency: {
-            desc: '同时下载数量',
-            type: 'number',
-            default: 5,
-          },
-
-          format: {
-            desc: '文件格式',
-            type: 'string',
-            default: DEFAULT_FORMAT,
-          },
-
-          quality: {
-            desc: '音质, 默认 999k 即最大码率, 可选 128/192/320',
-            type: 'number',
-            default: 999,
-            choices: [128, 192, 320, 999],
-          },
-
-          retryTimeout: {
-            desc: '下载超时(分)',
-            type: 'number',
-            default: 3,
-          },
-
-          retryTimes: {
-            desc: '下载重试次数',
-            type: 'number',
-            default: 3,
-          },
-
-          skip: {
-            desc: '对于已存在文件且大小合适则跳过',
-            type: 'boolean',
-            default: true,
-          },
-
-          progress: {
-            desc: '是否显示进度条',
-            type: 'boolean',
-            default: true,
-          },
-
-          cover: {
-            desc: '嵌入封面到音频标签（优先单曲专辑图；临时文件嵌入后删除）',
-            type: 'boolean',
-            default: false,
-          },
-
-          cookie: {
-            desc: 'cookie文件',
-            type: 'string',
-            default: DEFAULT_COOKIE_FILE,
-          },
-
-          cookieMode: {
-            desc: '登录方式: ask(交互) | file(只读文件) | qr(扫码)',
-            type: 'string',
-            choices: ['ask', 'file', 'qr'] as const,
-            default: 'ask',
-          },
-
-          skipTrial: {
-            desc: '跳过试听歌曲',
-            type: 'boolean',
-            default: false,
-          },
-
-          lyric: {
-            desc: '下载歌词为同名 .lrc',
-            type: 'boolean',
-            default: false,
-          },
-
-          transcode: {
-            desc: '转码格式: mp3 | aac（成功后删除原文件）',
-            type: 'string',
-            choices: ['mp3', 'aac'] as const,
-          },
-
-          mp3: {
-            desc: '等价 --transcode mp3',
-            type: 'boolean',
-            default: false,
-          },
-
-          aac: {
-            desc: '等价 --transcode aac（输出 .m4a）',
-            type: 'boolean',
-            default: false,
-          },
-
-          bitrate: {
-            desc: '转码码率 kbps（mp3 默认 320，aac 默认 256）',
-            type: 'number',
-          },
-        })
-        .config(config)
-        .example(`$0`, '交互：登录方式 + 选择歌单/云盘 + 下载选项')
-        .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
-        .example('$0 7392714527', '使用 id 下载歌单')
-        .example(`$0 --cookie-mode qr`, '强制扫码登录后交互选歌单')
-        .example(`$0 --cookie-mode file --lyric --mp3 --cover <url>`, '非交互：读 cookie 并下载')
-        .example(`$0 --lyric --aac <url>`, '下载并转 AAC(.m4a) + 歌词')
-        .example('$0 -c 10 <url>', '10首同时下载')
-        .example('$0 -f ":singer - :songName.:ext" <url>', '下载文件名为 "歌手 - 歌名"')
-        .epilog('帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader')
-    },
-    (options) => {
-      const cookieMode = (['ask', 'file', 'qr'].includes(options.cookieMode) ? options.cookieMode : 'ask') as CookieMode
-      return defaultCommandAction({ ...options, cookieMode })
-    },
-  )
-  .version(version!)
-  .help()
-  .parse()
-
 type ExpectedArgv = {
   url?: string
   concurrency: number
@@ -218,6 +79,8 @@ type ExpectedArgv = {
   bitrate?: number
 }
 
+const MULTI_SOURCE_SEARCH_MARK = '__MULTI_SOURCE_SEARCH__'
+
 function resolveTranscode(options: ExpectedArgv): TranscodeFormat | undefined {
   const flags = [options.mp3 && 'mp3', options.aac && 'aac', options.transcode].filter(Boolean) as string[]
   const uniq = [...new Set(flags)]
@@ -234,6 +97,135 @@ function resolveTranscode(options: ExpectedArgv): TranscodeFormat | undefined {
   }
   return undefined
 }
+
+yargs(hideBin(process.argv))
+  .scriptName('yun')
+  .command(
+    'search [keyword]',
+    '多源搜索下载（QQ / 网易云 / 酷我 / 酷狗 / 汽水，思路对齐 musicdl）',
+    (yargs) => {
+      return yargs
+        .positional('keyword', { describe: '搜索关键词', type: 'string' })
+        .options({
+          concurrency: { desc: '同时下载数量', type: 'number', default: 5 },
+          format: { desc: '文件格式', type: 'string', default: DEFAULT_FORMAT },
+          retryTimeout: { desc: '下载超时(分)', type: 'number', default: 3 },
+          retryTimes: { desc: '下载重试次数', type: 'number', default: 3 },
+          skip: { desc: '跳过已存在正常文件', type: 'boolean', default: true },
+          progress: { desc: '显示进度条', type: 'boolean', default: true },
+          cover: { desc: '嵌入封面', type: 'boolean', default: false },
+          skipTrial: { desc: '跳过试听', type: 'boolean', default: false },
+          lyric: { desc: '下载同名 .lrc', type: 'boolean', default: false },
+          transcode: { desc: '转码 mp3|aac', type: 'string', choices: ['mp3', 'aac'] as const },
+          mp3: { desc: '等价 --transcode mp3', type: 'boolean', default: false },
+          aac: { desc: '等价 --transcode aac', type: 'boolean', default: false },
+          bitrate: { desc: '转码码率 kbps', type: 'number' },
+          sources: { desc: '音源: qq,netease,kuwo,kugou,soda', type: 'string' },
+          limit: { desc: '每源条数', type: 'number', default: 5 },
+          all: { desc: '下载全部结果', type: 'boolean', default: false },
+          pick: { desc: '下载序号 1,3 或 1-5', type: 'string' },
+        })
+        .example(`$0 search 林俊杰 --lyric --mp3 --cover --pick 1`, '搜索并下载第 1 首')
+        .example(`$0 search 江南 --sources qq,kuwo --all`, '仅 QQ+酷我')
+    },
+    async (options) => {
+      try {
+        const argv = options as unknown as ExpectedArgv
+        const transcode = resolveTranscode(argv)
+        await runSearchCommand({
+          keyword: options.keyword as string | undefined,
+          sources: options.sources as string | undefined,
+          limit: options.limit as number,
+          concurrency: options.concurrency as number,
+          format: options.format as string,
+          retryTimeout: options.retryTimeout as number,
+          retryTimes: options.retryTimes as number,
+          skip: options.skip as boolean,
+          progress: options.progress as boolean,
+          cover: options.cover as boolean,
+          skipTrial: options.skipTrial as boolean,
+          lyric: options.lyric as boolean,
+          transcode,
+          bitrate: (options.bitrate as number | undefined) ?? (transcode ? defaultBitrate(transcode) : undefined),
+          all: options.all as boolean,
+          pick: options.pick as string | undefined,
+        })
+        process.exit(0)
+      } catch (e: any) {
+        console.error(`${logSymbols.error} ${e?.message || e}`)
+        process.exit(1)
+      }
+    },
+  )
+  .command(
+    '$0 [url]',
+    '网易云音乐 歌单/专辑 下载器（交互可选多源搜索）',
+    (yargs) => {
+      return yargs
+        .usage('Usage: $0 [url] [options]')
+        .positional('url', {
+          describe: '歌单/专辑/电台的链接 or 歌单 ID（可省略，进入交互选择）',
+          type: 'string',
+        })
+        .alias({
+          h: 'help',
+          v: 'version',
+          c: 'concurrency',
+          f: 'format',
+          q: 'quality',
+          s: 'skip',
+          p: 'progress',
+        })
+        .options({
+          concurrency: { desc: '同时下载数量', type: 'number', default: 5 },
+          format: { desc: '文件格式', type: 'string', default: DEFAULT_FORMAT },
+          quality: {
+            desc: '音质, 默认 999k 即最大码率, 可选 128/192/320',
+            type: 'number',
+            default: 999,
+            choices: [128, 192, 320, 999],
+          },
+          retryTimeout: { desc: '下载超时(分)', type: 'number', default: 3 },
+          retryTimes: { desc: '下载重试次数', type: 'number', default: 3 },
+          skip: { desc: '对于已存在文件且大小合适则跳过', type: 'boolean', default: true },
+          progress: { desc: '是否显示进度条', type: 'boolean', default: true },
+          cover: {
+            desc: '嵌入封面到音频标签（优先单曲专辑图；临时文件嵌入后删除）',
+            type: 'boolean',
+            default: false,
+          },
+          cookie: { desc: 'cookie文件', type: 'string', default: DEFAULT_COOKIE_FILE },
+          cookieMode: {
+            desc: '登录方式: ask(交互) | file(只读文件) | qr(扫码)',
+            type: 'string',
+            choices: ['ask', 'file', 'qr'] as const,
+            default: 'ask',
+          },
+          skipTrial: { desc: '跳过试听歌曲', type: 'boolean', default: false },
+          lyric: { desc: '下载歌词为同名 .lrc', type: 'boolean', default: false },
+          transcode: {
+            desc: '转码格式: mp3 | aac（成功后删除原文件）',
+            type: 'string',
+            choices: ['mp3', 'aac'] as const,
+          },
+          mp3: { desc: '等价 --transcode mp3', type: 'boolean', default: false },
+          aac: { desc: '等价 --transcode aac（输出 .m4a）', type: 'boolean', default: false },
+          bitrate: { desc: '转码码率 kbps（mp3 默认 320，aac 默认 256）', type: 'number' },
+        })
+        .config(config)
+        .example(`$0`, '交互：登录 / 多源搜索 / 歌单')
+        .example(`$0 search 周杰伦 --lyric --mp3 --cover --pick 1`, '多源搜索下载')
+        .example(`$0 'https://music.163.com/#/playlist?id=7392714527'`, '下载歌单')
+        .epilog('帮助 & 文档: https://github.com/magicdawn/yun-playlist-downloader')
+    },
+    (options) => {
+      const cookieMode = (['ask', 'file', 'qr'].includes(options.cookieMode) ? options.cookieMode : 'ask') as CookieMode
+      return defaultCommandAction({ ...options, cookieMode })
+    },
+  )
+  .version(version!)
+  .help()
+  .parse()
 
 async function defaultCommandAction(options: ExpectedArgv) {
   let {
@@ -255,17 +247,40 @@ async function defaultCommandAction(options: ExpectedArgv) {
   let transcode = resolveTranscode(options)
   if (bitrate == null && transcode) bitrate = defaultBitrate(transcode)
 
-  // 登录：交互选读文件 / 扫码
-  await ensureAuth(cookie, cookieMode)
-
-  // 下载目标：无 url 时交互选歌单 / 云盘 / 手动输入
+  // 下载目标：无 url 时交互选多源搜索 / 歌单 / 云盘
   let url: string
   try {
-    url = await selectDownloadUrl(options.url)
+    url = await selectDownloadUrl(options.url, { cookieFile: cookie, cookieMode })
   } catch (e: any) {
     console.error(`${logSymbols.error} ${e?.message || e}`)
     process.exit(1)
   }
+
+  if (url === MULTI_SOURCE_SEARCH_MARK) {
+    try {
+      await runSearchCommand({
+        concurrency,
+        format,
+        retryTimeout,
+        retryTimes,
+        skip: skipExists,
+        progress,
+        cover,
+        skipTrial,
+        lyric,
+        transcode,
+        bitrate,
+        limit: 5,
+      })
+      process.exit(0)
+    } catch (e: any) {
+      console.error(`${logSymbols.error} ${e?.message || e}`)
+      process.exit(1)
+    }
+  }
+
+  // 登录：网易云歌单/云盘需要
+  await ensureAuth(cookie, cookieMode)
 
   const urlResult = z
     .union([z.url(), z.string().trim().regex(/^\d+$/)], 'url 参数错误: 支持 url 或 歌单ID')

@@ -6,6 +6,7 @@ import { AlbumAdapter } from './adapter/album'
 import { CloudAdapter } from './adapter/cloud'
 import { DjradioAdapter, type ProgramSong } from './adapter/djradio'
 import { PlaylistAdapter } from './adapter/playlist'
+import { buildDownloadRequestOptions } from './download-headers'
 import { downloadSongWithInk } from './download/progress/ink'
 import { postProcessDownloadedFile, type PostDownloadOptions } from './post-download'
 import type { Song } from '$define'
@@ -71,13 +72,27 @@ export function downloadSong(options: DownloadSongOptions & { progress?: boolean
 }
 
 export async function downloadSongPlain(options: DownloadSongOptions) {
-  const { url, file, song, totalLength, retryTimeout, retryTimes, skipExists, skipTrial, lyric, transcode, bitrate, playlistCoverFile } =
-    options
+  const {
+    url,
+    file,
+    song,
+    totalLength,
+    retryTimeout,
+    retryTimes,
+    skipExists,
+    skipTrial,
+    lyric,
+    transcode,
+    bitrate,
+    playlistCoverFile,
+  } = options
 
   if (song.isFreeTrial && skipTrial) {
     console.log(`${logSymbols.warning} ${song.index}/${totalLength} 跳过试听 ${file}`)
     return
   }
+
+  const requestOptions = buildDownloadRequestOptions(url, song)
 
   let skip: boolean
   try {
@@ -85,6 +100,7 @@ export async function downloadSongPlain(options: DownloadSongOptions) {
       url,
       file,
       skipExists,
+      requestOptions,
       retry: {
         timeout: retryTimeout,
         times: retryTimes,
