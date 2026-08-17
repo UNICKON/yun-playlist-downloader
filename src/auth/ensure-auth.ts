@@ -9,6 +9,11 @@ export type CookieMode = 'ask' | 'file' | 'qr'
  * 确保有可用登录 Cookie：交互选读文件 / 扫码，或按 cookieMode 强制。
  */
 export async function ensureAuth(cookieFile: string, cookieMode: CookieMode = 'ask'): Promise<void> {
+  // 已有有效登录则跳过，避免选歌单时登录后再弹一次
+  if (hasMusicU(COOKIE_CONTENT) && cookieMode !== 'qr') {
+    return
+  }
+
   const interactive = isInteractive()
 
   if (cookieMode === 'file' || (!interactive && cookieMode === 'ask')) {

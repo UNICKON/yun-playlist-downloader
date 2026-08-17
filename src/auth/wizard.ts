@@ -1,14 +1,20 @@
 import logSymbols from 'log-symbols'
+import { ensureAuth, type CookieMode } from './ensure-auth'
 import { isInteractive, promptLine, promptSelect, promptYesNo } from './prompt'
 import { getLoginUserId, listUserPlaylists } from './user'
 import type { TranscodeFormat } from '$transcode'
 
 const CLOUD_URL = 'https://music.163.com/#/my/m/music/cloud'
 
+export type DownloadAuthOptions = {
+  cookieFile: string
+  cookieMode: CookieMode
+}
+
 /**
  * 无 url 参数时：交互选择下载目标（我的歌单 / 云盘 / 手动输入）
  */
-export async function selectDownloadUrl(providedUrl?: string): Promise<string> {
+export async function selectDownloadUrl(providedUrl?: string, auth?: DownloadAuthOptions): Promise<string> {
   if (providedUrl?.trim()) {
     let url = providedUrl.trim()
     if (/^\d+$/.test(url)) {
@@ -50,8 +56,11 @@ export async function selectDownloadUrl(providedUrl?: string): Promise<string> {
       }
     }
 
-    // playlist list
+    // playlist list：必须先登录，否则 login_status 拿不到 uid
     try {
+      if (auth) {
+        await ensureAuth(auth.cookieFile, auth.cookieMode)
+      }
       const { uid, nickname } = await getLoginUserId()
       console.log(`${logSymbols.info} 当前用户: ${nickname || uid}`)
       const playlists = await listUserPlaylists(uid)
