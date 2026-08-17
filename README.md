@@ -29,9 +29,9 @@
 
 | 能力            | 说明                                                                                           |
 | --------------- | ---------------------------------------------------------------------------------------------- |
-| **交互式 CLI**  | 无参数运行即可：选登录方式 → 选歌单/云盘 → 选下载选项                                          |
-| **扫码登录**    | 终端二维码，成功后写入 `yun.cookie.txt`（需含 `MUSIC_U`）                                      |
-| **歌单选择**    | 登录后列出「我的歌单」，数字序号选择下载                                                       |
+| **交互式 CLI**  | 无参数运行：先选下载来源（多源搜索 / 歌单 / 云盘 / 链接），网易云相关再登录                    |
+| **扫码登录**    | 终端二维码（网易云 App）；成功后写入 `yun.cookie.txt`（需含 `MUSIC_U`）                        |
+| **歌单选择**    | 选「我的歌单」时登录，列出列表后按序号下载                                                     |
 | **云盘下载**    | URL 含 `cloud` 时下载「我的云盘」；歌单内云盘曲元数据与链接兜底                                |
 | **多源搜索**    | `yun search <关键词>`：QQ / 网易云 / 酷我 / 酷狗 / 汽水（对齐 musicdl 思路，第三方解析拿直链） |
 | **旁路歌词**    | `--lyric` → 同名 `.lrc`（UTF-8）                                                               |
@@ -101,13 +101,14 @@ winget install Gyan.FFmpeg
 
 ```sh
 Usage: yun [url] [options]
+       yun search [keyword] [options]
 
 位置：
   url  歌单/专辑/电台/云盘 链接，或歌单 ID（可省略，进入交互选择）
 
-交互流程（TTY）：
-  1. 登录方式：读取 Cookie 文件 / 扫码登录
-  2. 下载来源：我的歌单 / 云盘 / 手动输入链接
+交互流程（TTY，yun 无参数）：
+  1. 下载来源：多源搜索 / 我的歌单 / 云盘 / 手动输入链接
+  2. 仅网易云歌单、云盘、链接需要登录（读 Cookie 或扫码；已有 MUSIC_U 则跳过）
   3. 下载选项：车载推荐 / 只要原曲 / 自定义 / 保持当前
 
 常用选项（原仓库）：
@@ -123,12 +124,18 @@ Usage: yun [url] [options]
       --cover          封面（本 fork：嵌入音频标签）
 
 本 fork 新增选项：
-      --cookie-mode    ask | file | qr（默认 ask：交互；file 只读文件；qr 直接扫码）
+      --cookie-mode    ask | file | qr（默认 ask：需要登录时再选；file 只读文件；qr 强制扫码）
       --lyric          旁路 .lrc + 内嵌歌词
       --mp3            转码为 mp3（删原文件）
       --aac            转码为 aac/.m4a（删原文件）
       --transcode      mp3 | aac（与 --mp3/--aac 互斥）
       --bitrate        转码码率 kbps
+
+yun search 额外选项：
+      --sources        qq,netease,kuwo,kugou,soda（默认全部）
+      --limit          每源条数（默认 5）
+      --pick           下载序号，如 1,3 或 1-5
+      --all            下载全部结果
 ```
 
 ### 示例
@@ -137,7 +144,11 @@ Usage: yun [url] [options]
 # —— 交互（推荐）——
 yun
 node dist/cli.js
-yun --cookie-mode qr          # 强制扫码后再选歌单
+yun --cookie-mode qr          # 选网易云歌单/云盘时强制扫码
+
+# —— 多源搜索（不登录）——
+yun search 林俊杰 --lyric --mp3 --cover --pick 1
+yun search 江南 --sources qq,kuwo,kugou --all
 
 # —— 原仓库用法 ——
 yun -c 10 '<playlist-url>'
@@ -162,10 +173,12 @@ yun --cookie-mode file --lyric --aac --cookie yun.cookie.txt '<url>'
 
 ### 交互登录与歌单选择
 
-- 默认 `--cookie-mode ask`：每次下载前选择「读 Cookie」或「扫码」
-- 扫码成功后覆盖写入 `--cookie` 路径，并校验 `MUSIC_U`
-- 未传 `url` 时可选择「我的歌单」列表、云盘或手动输入链接
-- 脚本环境请用 `--cookie-mode file`，并显式传入 `url`，避免卡住
+- 先选下载来源；**多源搜索不登录**，网易云歌单 / 云盘 / 链接才需要
+- 默认 `--cookie-mode ask`：需要登录时再选「读 Cookie」或「扫码」；内存里已有 `MUSIC_U` 则跳过（`qr` 除外）
+- `--cookie-mode qr`：需要登录时直接扫码，不读已有文件
+- `--cookie-mode file`：只读 `--cookie` 文件，适合脚本
+- 扫码：终端打印二维码（网易云 App），成功后覆盖写入 `--cookie`（默认 `yun.cookie.txt`），并校验 `MUSIC_U`
+- 选「我的歌单」会在列出列表前登录，否则拿不到 uid
 
 详见 [docs/cookie.md](docs/cookie.md)。
 
@@ -254,7 +267,7 @@ yun --cookie-mode file --lyric --aac --cookie yun.cookie.txt '<url>'
 ## 更新记录
 
 - 上游：[CHANGELOG.md](CHANGELOG.md)
-- 本 fork：见 GitHub Releases / commit（云盘、歌词、转码、标签、交互登录与歌单选择等）
+- 本 fork：见 GitHub Releases / commit（多源搜索、云盘、歌词、转码、标签、交互登录与歌单选择等）
 
 ## License
 
