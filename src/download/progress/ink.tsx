@@ -6,7 +6,9 @@ import logSymbols from 'log-symbols'
 import { useEffect, useMemo, useState } from 'react'
 import { proxy, useSnapshot } from 'valtio'
 import { buildDownloadRequestOptions } from '../../download-headers'
+import { refreshSongUrl } from '../../fresh-url'
 import { postProcessDownloadedFile } from '../../post-download'
+import { skipIfTranscodedExists } from '../../skip'
 import type { DownloadSongOptions } from '$index'
 
 type CompletedItem = DownloadSongOptions & {
@@ -78,13 +80,21 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
     return moveToComplete({ success: false, skip: true })
   }
 
+  // --skip: 已转码的成品文件存在则跳过（否则带 --mp3 重跑会全部重下）
+  if (skipExists) {
+    const skippedFile = await skipIfTranscodedExists({ file, song, transcode, lyric })
+    if (skippedFile) {
+      return moveToComplete({ success: true, skip: true, finalFile: skippedFile })
+    }
+  }
+
   let skip = false
-  try {
-    ;({ skip } = await dl({
-      url,
+  const dlOnce = (targetUrl: string) =>
+    dl({
+      url: targetUrl,
       file,
       skipExists,
-      requestOptions: buildDownloadRequestOptions(url, song),
+      requestOptions: buildDownloadRequestOptions(targetUrl, song),
       onprogress({ percent }) {
         if (percent === 1) {
           // 等后处理完成后再标记成功
@@ -99,10 +109,23 @@ export async function downloadSongWithInk(options: DownloadSongOptions) {
           retry(i)
         },
       },
-    }))
+    })
+
+  try {
+    ;({ skip } = await dlOnce(url))
   } catch {
-    fail()
-    return
+    // 大歌单直链会过期(403)：重新解析一次再试
+    const freshUrl = await refreshSongUrl(song, options.quality, url)
+    if (!freshUrl) {
+      fail()
+      return
+    }
+    try {
+      ;({ skip } = await dlOnce(freshUrl))
+    } catch {
+      fail()
+      return
+    }
   }
 
   try {

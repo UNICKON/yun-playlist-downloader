@@ -8,7 +8,9 @@ import { DjradioAdapter, type ProgramSong } from './adapter/djradio'
 import { PlaylistAdapter } from './adapter/playlist'
 import { buildDownloadRequestOptions } from './download-headers'
 import { downloadSongWithInk } from './download/progress/ink'
+import { refreshSongUrl } from './fresh-url'
 import { postProcessDownloadedFile, type PostDownloadOptions } from './post-download'
+import { skipIfTranscodedExists } from './skip'
 import type { Song } from '$define'
 
 /**
@@ -60,6 +62,8 @@ export interface DownloadSongOptions extends PostDownloadOptions {
   retryTimes: number
   skipExists: boolean
   skipTrial: boolean
+  /** 音质(已 ×1000)，用于直链过期后重新解析 */
+  quality?: number
 }
 
 export function downloadSong(options: DownloadSongOptions & { progress?: boolean }) {
@@ -92,15 +96,23 @@ export async function downloadSongPlain(options: DownloadSongOptions) {
     return
   }
 
+  // --skip: 已转码的成品文件存在则跳过（否则带 --mp3 重跑会全部重下）
+  if (skipExists) {
+    const skippedFile = await skipIfTranscodedExists({ file, song, transcode, lyric })
+    if (skippedFile) {
+      console.log(`${logSymbols.success} ${song.index}/${totalLength} 下载跳过 ${skippedFile}`)
+      return
+    }
+  }
+
   const requestOptions = buildDownloadRequestOptions(url, song)
 
-  let skip: boolean
-  try {
-    ;({ skip } = await dl({
-      url,
+  const dlOnce = (targetUrl: string) =>
+    dl({
+      url: targetUrl,
       file,
       skipExists,
-      requestOptions,
+      requestOptions: targetUrl === url ? requestOptions : buildDownloadRequestOptions(targetUrl, song),
       retry: {
         timeout: retryTimeout,
         times: retryTimes,
@@ -108,11 +120,26 @@ export async function downloadSongPlain(options: DownloadSongOptions) {
           console.log(`${logSymbols.warning} ${song.index}/${totalLength}  ${i + 1}次失败 ${file}`)
         },
       },
-    }))
+    })
+
+  let skip: boolean
+  try {
+    ;({ skip } = await dlOnce(url))
   } catch (e: any) {
-    console.log(`${logSymbols.error} ${song.index}/${totalLength} 下载失败 ${file}`)
-    console.error(e.stack || e)
-    return
+    // 大歌单直链会过期(403)：重新解析一次再试
+    const freshUrl = await refreshSongUrl(song, options.quality, url)
+    if (!freshUrl) {
+      console.log(`${logSymbols.error} ${song.index}/${totalLength} 下载失败 ${file}`)
+      console.error(e.stack || e)
+      return
+    }
+    try {
+      ;({ skip } = await dlOnce(freshUrl))
+    } catch (e2: any) {
+      console.log(`${logSymbols.error} ${song.index}/${totalLength} 下载失败 ${file}`)
+      console.error(e2.stack || e2)
+      return
+    }
   }
 
   console.log(`${logSymbols.success} ${song.index}/${totalLength} ${skip ? '下载跳过' : '下载成功'} ${file}`)

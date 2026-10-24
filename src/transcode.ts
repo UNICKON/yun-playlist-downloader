@@ -28,14 +28,18 @@ export function isAlreadyTargetFormat(file: string, fmt: TranscodeFormat) {
 }
 
 /**
+ * 该文件转码后的成品路径（已是目标格式则原样返回）
+ */
+export function getTranscodedFile(file: string, fmt: TranscodeFormat): string {
+  if (isAlreadyTargetFormat(file, fmt)) return file
+  return path.join(path.dirname(file), `${path.basename(file, path.extname(file))}${EXT[fmt]}`)
+}
+
+/**
  * 转码为 mp3/aac，成功后删除源文件，返回最终路径。
  * 若已是目标格式则原样返回。
  */
-export async function transcodeAudio(
-  inputFile: string,
-  fmt: TranscodeFormat,
-  bitrateKbps?: number,
-): Promise<string> {
+export async function transcodeAudio(inputFile: string, fmt: TranscodeFormat, bitrateKbps?: number): Promise<string> {
   if (isAlreadyTargetFormat(inputFile, fmt)) return inputFile
 
   try {
@@ -45,10 +49,7 @@ export async function transcodeAudio(
   }
 
   const br = bitrateKbps ?? defaultBitrate(fmt)
-  const outFile = path.join(
-    path.dirname(inputFile),
-    `${path.basename(inputFile, path.extname(inputFile))}${EXT[fmt]}`,
-  )
+  const outFile = getTranscodedFile(inputFile, fmt)
 
   const codecArgs =
     fmt === 'mp3'

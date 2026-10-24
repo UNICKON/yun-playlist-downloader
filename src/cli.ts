@@ -14,7 +14,6 @@ import pmap from 'promise.map'
 import rcFactory from 'rc'
 import updateNotifier from 'update-notifier'
 import yargs from 'yargs'
-import { hideBin } from 'yargs/helpers'
 import { z } from 'zod'
 import { COOKIE_CONTENT, DEFAULT_COOKIE_FILE } from '$auth/cookie'
 import { ensureAuth, type CookieMode } from '$auth/ensure-auth'
@@ -98,7 +97,8 @@ function resolveTranscode(options: ExpectedArgv): TranscodeFormat | undefined {
   return undefined
 }
 
-yargs(hideBin(process.argv))
+// 注意: yargs@18 的 hideBin 只 slice(1)，会把脚本自身路径当成 url 参数，这里显式 slice(2)
+yargs(process.argv.slice(2))
   .scriptName('yun')
   .command(
     'search [keyword]',
@@ -416,6 +416,7 @@ async function defaultCommandAction(options: ExpectedArgv) {
         transcode,
         bitrate,
         playlistCoverFile,
+        quality,
       })
     },
     concurrency,
